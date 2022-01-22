@@ -1,0 +1,74 @@
+#!/bin/sh
+set -e
+
+usage()
+{
+    cat <<EOF
+Usage: usenet <interface> [<3-msb-of-subnet>]
+
+Isolate an interface in its own network namespace and start a shell.
+
+EOF
+}
+
+# heuristic function that chooses a subnet from an interface name.
+#
+# up to two numbers in the interface name are used to form a
+# 10.X.Y.0/24 subnet. E.g. eth3 will use subnet 10.0.3.0/24 and
+# eth2.35 will use 10.2.35.0/24.
+subnet()
+{
+    ifname=$1
+
+    # find the last two numbers in $ifname
+    nums=$(echo $ifname | tr -c [:digit:] " ")
+    nums=$(echo $nums | awk '{for(i=NF;i>0;i--){printf("%d ", $i)}; }')
+    set -- $nums
+
+    case $# in
+	0) echo 10.0.0 ;;
+	1) echo 10.0.$1 ;;
+	*) echo 10.$2.$1 ;;
+    esac
+}
+
+main()
+{
+    ifname=$1
+    nsname=$1
+
+    if [ "$2" ]; then
+	net=$2
+    else
+	net=$(subnet $ifname)
+    fi
+
+    ip=${net}.2/24
+    gw=${net}.1
+
+    cmd="${cmd}ip addr add 127.0.0.1/8 dev lo;"
+    cmd="${cmd}ip link set lo up;"
+
+    cmd="${cmd}ip addr add ${ip} dev ${ifname};"
+    cmd="${cmd}ip link set ${ifname} up;"
+    cmd="${cmd}ip route add default via ${gw};"
+
+    cmd="${cmd}su ${LOGNAME};"
+
+    sudocmd="${sudocmd}ip netns add ${nsname};"
+    sudocmd="${sudocmd}ip link set ${ifname} netns ${nsname};"
+    sudocmd="${sudocmd}ip netns exec ${nsname} sh -c \"${cmd}\";"
+    sudocmd="${sudocmd}ip netns exec ${nsname} ip link set ${ifname} netns 1;"
+    sudocmd="${sudocmd}ip netns del ${nsname};"
+
+    sudo $SHELL -ic "${sudocmd}"
+}
+
+case $# in
+    1|2) main $1 $2 ;;
+
+    *)
+	usage
+	exit 1
+esac
+

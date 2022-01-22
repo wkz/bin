@@ -1,0 +1,34 @@
+#!/bin/sh
+
+resolve() {
+    which $@ | xargs realpath
+}
+
+capexpand() {
+    caps=$1
+
+    shift
+    for bin in $@; do
+	printf '%s+ep %s ' $caps $bin
+    done
+}
+
+net_all=$(resolve \
+	      gdb-multiarch dnsmasq trafgen \
+       )
+
+net_adm=$(resolve \
+	      ip bridge tc brctl ifconfig ethtool \
+	      qemu-system-aarch64 qemu-system-arm \
+	      qemu-system-ppc qemu-system-ppc64 \
+	      qemu-system-x86_64 \
+	      /usr/lib/qemu/qemu-bridge-helper \
+       )
+
+net_raw=$(resolve \
+	      hping3 tcpdump nemesis socat \
+       )
+
+sudo setcap \
+     $(capexpand "cap_net_admin,cap_net_raw,cap_net_bind_service" $net_all) \
+     $(capexpand "cap_net_admin" $net_adm) $(capexpand "cap_net_raw" $net_raw)

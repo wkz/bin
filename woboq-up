@@ -1,0 +1,9 @@
+#!/bin/sh
+
+ver=$(git describe --always --tags)
+cwd=$(pwd)
+name=$(basename $cwd)
+outdir=~/srv/www/woboq/$name
+
+codebrowser_generator --no-warn -b $cwd -a -o $outdir -p $name:$cwd:$ver
+codebrowser_indexgenerator $outdir

@@ -1,0 +1,3 @@
+#!/bin/sh
+
+socat -U exec:"console -f $1",crnl stdin

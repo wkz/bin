@@ -1,0 +1,5 @@
+#!/bin/sh
+
+tid=$(notmuch search --output=threads $1 | head -n 1)
+
+notmuch-extract-patch $tid | git am

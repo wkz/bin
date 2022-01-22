@@ -1,0 +1,106 @@
+#!/bin/sh
+
+set -e
+
+while getopts "RF" opt; do
+    case ${opt} in
+	R)
+	    rfc=yes
+	    ;;
+	F)
+	    force=yes
+	    ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+br=${1:-$(git describe --exact-match --all | sed -e s:heads/::)}
+
+if [ ! -d patches ]; then
+    echo "no patches dir, you in the right place?" >&2; exit 1
+fi
+
+for n in $(seq 100); do
+    git describe --exact-match --all ${br}~$n >/dev/null 2>&1 || continue
+
+    base=$(git describe --exact-match --all ${br}~$n | sed -e s:heads/::)
+    break
+done
+
+if [ $n -ge 100 ]; then
+    echo "unable to find base branch" >&2; exit 1
+fi
+
+echo creating $n patches from $base to $br
+git log --oneline ${base}..${br}
+
+if [ -x scripts/checkpatch.pl ]; then
+    echo -n running checkpatch...
+    if ! ./scripts/checkpatch.pl -q -g ${base}..${br}; then
+	if [ "$force" ]; then
+	    echo IGNORING CHECKPATCH WARNINGS/ERRORS
+	else
+	    echo FAIL
+	    ./scripts/checkpatch.pl -g ${base}..${br}
+	    exit 1
+	fi
+    else
+	echo ok
+    fi
+fi
+
+if [ "$rfc" ]; then
+    outdir=patches/$br/rfc
+    prefix="RFC"
+else
+    for v in $(seq 100); do
+	[ -d patches/$br/v$v ] || break
+    done
+
+    if [ $v -ge 100 ]; then
+	echo "unable to determine version" >&2; exit 1
+    fi
+
+    outdir=patches/$br/v$v
+
+    prefix="PATCH"
+    if [ $v -gt 1 ]; then
+	prefix="$prefix v$v"
+    fi
+fi
+mkdir -p $outdir
+
+if [ $n -gt 1 ]; then
+    cover=--cover-letter
+else
+    cover=--no-cover-letter
+fi
+
+prefix="$prefix $base"
+
+git format-patch -s $cover --subject-prefix="$prefix" -o $outdir ${base}..${br}
+
+if ag -i 'pr_emerg|wkz' patches/; then
+    echo WARNING WARNING
+fi
+
+incover=patches/$br/cover
+outcover=$outdir/0000-cover-letter.patch
+if [ -f $incover -a -f $outcover ]; then
+    echo injecting cover letter info
+
+    awk -i inplace -v f=$incover '
+	/SUBJECT HERE/ {
+		 getline subject <f; getline empty <f;
+		 sub("\\*\\*\\* SUBJECT HERE \\*\\*\\*", subject);
+	}
+
+	/BLURB HERE/ {
+	       while ((getline < f) > 0) {
+	       	     print;
+	       };
+	       next;
+	}
+
+	1' $outcover
+fi
